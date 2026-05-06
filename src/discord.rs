@@ -4,8 +4,6 @@ use crate::ra_api::UserSummary;
 use crate::config::Config;
 use crate::errors::AppError;
 
-const RA_BASE_URL: &str = "https://retroachievements.org";
-
 pub struct DiscordPresence {
     client: DiscordIpcClient,
     config: Config,

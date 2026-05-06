@@ -1,9 +1,7 @@
-use std::str::FromStr;
 use tokio::signal;
 use tokio::time::{interval, Duration};
 use tracing::{info, error, Level};
 use tracing_subscriber::FmtSubscriber;
-use confy::ConfyError;
 
 mod config;
 mod errors;
@@ -11,15 +9,38 @@ mod ra_api;
 mod discord;
 mod state;
 
-use config::Config;
+use config::{Config, load_config, get_config_path, get_config_dir_display};
+use config::setup::run_setup;
+use config::config::ConfigError;
 use errors::AppError;
 use ra_api::RaClient;
 use discord::DiscordPresence;
 use state::AppState;
 
+fn setup_logging(log_level: &str) {
+    let level = match log_level {
+        "debug" => Level::DEBUG,
+        "trace" => Level::TRACE,
+        "warn" => Level::WARN,
+        "error" => Level::ERROR,
+        _ => Level::INFO,
+    };
+
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(level)
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_file(true)
+        .with_line_number(true)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set tracing subscriber");
+}
+
 async fn run_app(config: Config) -> Result<(), AppError> {
     config.validate()
-        .map_err(|e| AppError::Config(e))?;
+        .map_err(|e: Vec<String>| AppError::Config(e.join("\n")))?;
 
     info!("Connecting to Discord...");
     let mut discord = DiscordPresence::new(config.clone())?;
@@ -73,64 +94,80 @@ async fn run_app(config: Config) -> Result<(), AppError> {
     Ok(())
 }
 
-fn load_config() -> Result<Config, AppError> {
-    let cfg: Config = confy::load("ra-discord-rp", "config")
-        .map_err(|e: ConfyError| AppError::ConfigIo(e))?;
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
     
-    let mut cfg = cfg;
-    cfg.load_from_env();
-    
-    if cfg.username.is_empty() || cfg.api_key.is_empty() || cfg.discord_client_id.is_empty() {
-        let default_cfg = Config::default();
-        confy::store("ra-discord-rp", "config", &default_cfg)
-            .map_err(|e: ConfyError| AppError::ConfigIo(e))?;
-        
-        return Err(AppError::Config(
-            "Missing credentials. Set RA_USERNAME, RA_API_KEY, and DISCORD_CLIENT_ID env vars.".to_string()
-        ));
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_help();
+        return;
     }
     
-    Ok(cfg)
-}
-
-fn parse_log_level(s: &str) -> Level {
-    match s {
-        "debug" => Level::DEBUG,
-        "trace" => Level::TRACE,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => Level::INFO,
+    if args.iter().any(|a| a == "--version" || a == "-v") {
+        println!("ra-discord-rp v{}", env!("CARGO_PKG_VERSION"));
+        return;
     }
-}
-
-#[tokio::main]
-async fn main() {
-    let log_level = match confy::load::<Config>("ra-discord-rp", "config") {
-        Ok(cfg) => parse_log_level(&cfg.log_level),
-        Err(_) => Level::INFO,
-    };
-
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(log_level)
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(true)
-        .with_line_number(true)
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set tracing subscriber");
-
+    
+    if args.iter().any(|a| a == "--config-path") {
+        match get_config_path() {
+            Some(path) => {
+                println!("Config location: {}", path.to_string_lossy());
+            }
+            None => {
+                println!("Could not determine config path");
+            }
+        }
+        return;
+    }
+    
+    if args.iter().any(|a| a == "--setup") {
+        match run_setup() {
+            Ok(_config) => {
+                println!("Setup complete! You can now run the application.");
+            }
+            Err(e) => {
+                eprintln!("Setup failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    
     let config = match load_config() {
         Ok(cfg) => cfg,
+        Err(ConfigError::NotFound) => {
+            eprintln!("No configuration found.");
+            eprintln!("Run with --setup to create a configuration file.");
+            eprintln!("Config location: {}", get_config_dir_display());
+            std::process::exit(1);
+        }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("Failed to load config: {}", e);
+            eprintln!("Run with --setup to reconfigure.");
             std::process::exit(1);
         }
     };
-
-    if let Err(e) = run_app(config).await {
+    
+    setup_logging(&config.log_level);
+    
+    if let Err(e) = tokio::runtime::Runtime::new().unwrap().block_on(run_app(config)) {
         error!("Application error: {}", e);
         std::process::exit(1);
     }
+}
+
+fn print_help() {
+    println!("RetroAchievements Discord Rich Presence");
+    println!();
+    println!("Usage: ra-discord-rp [OPTIONS]");
+    println!();
+    println!("Options:");
+    println!("  --setup          Run interactive setup to create config");
+    println!("  --config-path    Show config file location");
+    println!("  --version        Show version");
+    println!("  --help           Show this help message");
+    println!();
+    println!("Config location:");
+    println!("  Linux:   ~/.config/ra-discord-rp/config.toml");
+    println!("  macOS:   ~/Library/Application Support/ra-discord-rp/config.toml");
+    println!("  Windows: %APPDATA%\\ra-discord-rp\\config.toml");
 }
