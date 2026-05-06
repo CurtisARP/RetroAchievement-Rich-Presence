@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::errors::AppError;
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct UserSummary {
     #[serde(rename = "User")]
     pub user: String,
@@ -28,6 +29,7 @@ pub struct UserSummary {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct LastActivity {
     #[serde(rename = "ID")]
     pub id: u64,
@@ -46,6 +48,7 @@ pub struct LastActivity {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct LastGame {
     #[serde(rename = "ID")]
     pub id: u64,
@@ -73,6 +76,7 @@ pub struct LastGame {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[allow(dead_code)]
 pub struct RecentlyPlayedGame {
     #[serde(rename = "GameID")]
     pub game_id: u64,

@@ -169,9 +169,6 @@ fn validate_credentials(config: &Config) -> Result<(), String> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetupError {
-    #[error("Setup cancelled by user")]
-    Cancelled,
-    
     #[error("Failed to validate credentials")]
     ValidationFailed,
     
